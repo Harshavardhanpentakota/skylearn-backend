@@ -35,6 +35,7 @@ const cleanIp = (ip) =>
  */
 const getClientIp = (req) => {
   const fwd = req.headers['x-forwarded-for'];
+  console.log(req.headers['x-forwarded-for']);
 
   if (fwd) {
     return cleanIp(fwd.split(',')[0].trim()); // ✅ ALWAYS FIRST
