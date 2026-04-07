@@ -35,13 +35,11 @@ const cleanIp = (ip) =>
  */
 const getClientIp = (req) => {
   const fwd = req.headers['x-forwarded-for'];
+
   if (fwd) {
-    for (const raw of fwd.split(',')) {
-      const ip = cleanIp(raw.trim());
-      if (ip && !isPrivateIp(ip)) return ip;
-    }
+    return cleanIp(fwd.split(',')[0].trim()); // ✅ ALWAYS FIRST
   }
-  // Fallback: req.ip (may be private in VPC — stored as-is, not substituted)
+
   return cleanIp(req.ip || req.socket?.remoteAddress || 'unknown');
 };
 
