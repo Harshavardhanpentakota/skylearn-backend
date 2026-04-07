@@ -39,4 +39,10 @@ router.get('/activity',   admin.getActivity);
 // ── Suspicious ─────────────────────────────────────────────────────────────
 router.get('/suspicious', admin.getSuspiciousActivity);
 
+// ── Announcements ──────────────────────────────────────────────────────────
+router.get('/announcements',              admin.getAnnouncements);
+router.post('/announcements',             admin.createAnnouncement);
+router.put('/announcements/:announcementId',    admin.updateAnnouncement);
+router.delete('/announcements/:announcementId', admin.deleteAnnouncement);
+
 module.exports = router;

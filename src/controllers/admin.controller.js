@@ -1,9 +1,10 @@
 'use strict';
 
-const User         = require('../models/User');
-const Course       = require('../models/Course');
-const LoginHistory = require('../models/LoginHistory');
-const UserProgress = require('../models/UserProgress');
+const User                = require('../models/User');
+const Course              = require('../models/Course');
+const LoginHistory        = require('../models/LoginHistory');
+const UserProgress        = require('../models/UserProgress');
+const announcementService = require('../services/announcement.service');
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
 const getStats = async (req, res, next) => {
@@ -432,6 +433,45 @@ const updateTopicNotes = async (req, res, next) => {
   }
 };
 
+// ─── Announcements ────────────────────────────────────────────────────────────
+
+const getAnnouncements = async (req, res, next) => {
+  try {
+    const list = await announcementService.findAll();
+    res.json(list);
+  } catch (err) { next(err); }
+};
+
+const createAnnouncement = async (req, res, next) => {
+  try {
+    const { title, description, targetRole } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const a = await announcementService.create({
+      title, description, targetRole, createdBy: req.user.sub,
+    });
+    res.status(201).json(a);
+  } catch (err) { next(err); }
+};
+
+const updateAnnouncement = async (req, res, next) => {
+  try {
+    const allowed = ['title', 'description', 'targetRole'];
+    const data = {};
+    for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
+    const a = await announcementService.update(req.params.announcementId, data);
+    if (!a) return res.status(404).json({ error: 'Announcement not found' });
+    res.json(a);
+  } catch (err) { next(err); }
+};
+
+const deleteAnnouncement = async (req, res, next) => {
+  try {
+    const a = await announcementService.remove(req.params.announcementId);
+    if (!a) return res.status(404).json({ error: 'Announcement not found' });
+    res.json({ message: 'Announcement deleted' });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getStats,
   getUsers, updateUser, deleteUser,
@@ -441,4 +481,5 @@ module.exports = {
   updateTopicNotes,
   getActivity,
   getSuspiciousActivity,
+  getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
 };

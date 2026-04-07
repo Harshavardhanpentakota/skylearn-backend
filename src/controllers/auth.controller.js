@@ -140,4 +140,29 @@ const googleCallback = (req, res) => {
   }
 };
 
-module.exports = { register, login, me, loginHistory, googleCallback };
+// ─── GET /api/auth/suspicious-check ──────────────────────────────────────────
+// Returns the most recent login entry and whether it came from a new device/IP.
+
+const LoginHistory = require('../models/LoginHistory');
+
+const suspiciousCheck = async (req, res, next) => {
+  try {
+    const latest = await LoginHistory
+      .findOne({ userId: req.user.sub })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!latest) return res.json({ isNewDevice: false });
+
+    res.json({
+      isNewDevice: latest.isNewDevice || false,
+      ip:          latest.ip,
+      method:      latest.method,
+      createdAt:   latest.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, me, loginHistory, googleCallback, suspiciousCheck };

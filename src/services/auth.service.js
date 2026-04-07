@@ -40,10 +40,14 @@ const createUser = async ({ name, email, password }) => {
 // ─── Login history ────────────────────────────────────────────────────────────
 
 /**
- * Records a login event. Non-blocking: caller should fire-and-forget.
+ * Records a login event. Detects if the IP is new for this user (possible new device/location).
+ * Non-blocking: caller should fire-and-forget.
  */
-const recordLogin = (userId, ip, userAgent, method = 'email') =>
-  LoginHistory.create({ userId, ip, userAgent: userAgent || null, method });
+const recordLogin = async (userId, ip, userAgent, method = 'email') => {
+  const existingFromIp = await LoginHistory.findOne({ userId, ip }).lean();
+  const isNewDevice    = !existingFromIp;
+  return LoginHistory.create({ userId, ip, userAgent: userAgent || null, method, isNewDevice });
+};
 
 const getLoginHistory = (userId, limit = 10) =>
   LoginHistory.find({ userId }).sort({ createdAt: -1 }).limit(limit);

@@ -5,8 +5,11 @@ const mongoose = require('mongoose');
 const AnnouncementSchema = new mongoose.Schema(
   {
     title:       { type: String, required: true, trim: true },
-    description: { type: String, trim: true },
+    description: { type: String, trim: true, default: '' },
     date:        { type: String, required: true },
+    targetRole:  { type: String, enum: ['all', 'student', 'admin'], default: 'all' },
+    readBy:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   {
     timestamps: true,

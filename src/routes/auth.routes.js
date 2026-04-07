@@ -41,7 +41,8 @@ router.get(
 );
 
 // Protected (JWT required)
-router.get('/me',            authenticate, authController.me);
-router.get('/login-history', authenticate, authController.loginHistory);
+router.get('/me',               authenticate, authController.me);
+router.get('/login-history',    authenticate, authController.loginHistory);
+router.get('/suspicious-check', authenticate, authController.suspiciousCheck);
 
 module.exports = router;
