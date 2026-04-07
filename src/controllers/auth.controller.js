@@ -1,38 +1,48 @@
 'use strict';
 
-const os         = require('os');
 const jwt        = require('jsonwebtoken');
 const User       = require('../models/User');
 const authService = require('../services/auth.service');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Return the first non-loopback IPv4 address of this machine, or 127.0.0.1 */
-const getMachineIp = () => {
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return '127.0.0.1';
+/**
+ * Returns true for loopback and RFC-1918 private addresses.
+ * 172.31.x.x is the AWS VPC range — treat it as internal.
+ */
+const isPrivateIp = (ip) => {
+  if (!ip || ip === '::1') return true;
+  return (
+    /^127\./.test(ip) ||
+    /^10\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^192\.168\./.test(ip)
+  );
 };
 
-const normalizeIp = (ip) => {
-  if (!ip) return 'unknown';
-  // Loopback → use the machine's real LAN IP (covers local-dev same-machine access)
-  if (ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '127.0.0.1') {
-    return getMachineIp();
-  }
-  // Strip IPv4-mapped prefix (::ffff:x.x.x.x)
-  if (ip.startsWith('::ffff:')) return ip.slice(7);
-  return ip;
-};
+/** Strip IPv4-mapped prefix (::ffff:x.x.x.x → x.x.x.x) */
+const cleanIp = (ip) =>
+  ip && ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 
+/**
+ * Extracts the real client IP.
+ *
+ * Strategy (AWS-safe):
+ *   1. Walk x-forwarded-for LEFT→RIGHT and return the first PUBLIC IP.
+ *      (Leftmost = original client; rightmost entries are added by proxies we trust)
+ *   2. If all x-forwarded-for entries are private/internal, fall back to req.ip.
+ *   3. Return the value as-is — never substitute with the machine's own IP.
+ */
 const getClientIp = (req) => {
   const fwd = req.headers['x-forwarded-for'];
-  if (fwd) return normalizeIp(fwd.split(',')[0].trim());
-  return normalizeIp(req.ip || req.socket?.remoteAddress);
+  if (fwd) {
+    for (const raw of fwd.split(',')) {
+      const ip = cleanIp(raw.trim());
+      if (ip && !isPrivateIp(ip)) return ip;
+    }
+  }
+  // Fallback: req.ip (may be private in VPC — stored as-is, not substituted)
+  return cleanIp(req.ip || req.socket?.remoteAddress || 'unknown');
 };
 
 const signToken = (user) =>
