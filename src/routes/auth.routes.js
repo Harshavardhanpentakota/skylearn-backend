@@ -44,5 +44,6 @@ router.get(
 router.get('/me',               authenticate, authController.me);
 router.get('/login-history',    authenticate, authController.loginHistory);
 router.get('/suspicious-check', authenticate, authController.suspiciousCheck);
+router.post('/device',          authenticate, authController.updateDeviceInfo);
 
 module.exports = router;

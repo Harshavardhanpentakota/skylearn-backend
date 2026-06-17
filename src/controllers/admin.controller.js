@@ -4,6 +4,7 @@ const User                = require('../models/User');
 const Course              = require('../models/Course');
 const LoginHistory        = require('../models/LoginHistory');
 const UserProgress        = require('../models/UserProgress');
+const ActivityLog         = require('../models/ActivityLog');
 const announcementService = require('../services/announcement.service');
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
@@ -114,6 +115,7 @@ const getUsers = async (req, res, next) => {
           name:       u.name,
           email:      u.email,
           role:       u.role,
+          status:     u.status || 'active',
           avatar:     u.avatar || null,
           hasGoogle:  !!u.googleId,
           createdAt:  u.createdAt,
@@ -130,13 +132,34 @@ const getUsers = async (req, res, next) => {
 
 const updateUser = async (req, res, next) => {
   try {
-    const allowed = ['name', 'role'];
+    const allowed = ['name', 'email', 'role', 'status'];
     const updates = {};
     for (const k of allowed) {
       if (req.body[k] !== undefined) updates[k] = req.body[k];
     }
+
+    // If email is being changed, ensure it's not taken by another user
+    if (updates.email) {
+      const existing = await User.findOne({ email: updates.email.toLowerCase().trim() }).lean();
+      if (existing && existing._id.toString() !== req.params.id) {
+        return res.status(409).json({ error: 'Email is already in use by another account' });
+      }
+      updates.email = updates.email.toLowerCase().trim();
+    }
+
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true }).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Log status changes
+    if (updates.status) {
+      await ActivityLog.create({
+        eventType:    updates.status === 'blocked' ? 'block' : 'unblock',
+        targetUserId: req.params.id,
+        performedBy:  req.user.sub,
+        details:      `User ${user.email} ${updates.status === 'blocked' ? 'blocked' : 'unblocked'} via edit`,
+      });
+    }
+
     res.json(user);
   } catch (err) {
     next(err);
@@ -155,6 +178,107 @@ const deleteUser = async (req, res, next) => {
       UserProgress.deleteMany({ userId: req.params.id }),
     ]);
     res.json({ message: 'User deleted' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const bulkCreateUsers = async (req, res, next) => {
+  try {
+    const rows = req.body.users;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'No user rows provided' });
+    }
+    if (rows.length > 500) {
+      return res.status(400).json({ error: 'Maximum 500 users per import' });
+    }
+
+    const results = { created: 0, skipped: 0, errors: [] };
+
+    for (const row of rows) {
+      const name  = (row.name  || '').trim();
+      const email = (row.email || '').toLowerCase().trim();
+      const role  = ['admin', 'student'].includes(row.role) ? row.role : 'student';
+      const password = (row.password || '').trim();
+
+      if (!name || !email) {
+        results.errors.push({ email: email || '(empty)', reason: 'Name and email are required' });
+        results.skipped++;
+        continue;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        results.errors.push({ email, reason: 'Invalid email format' });
+        results.skipped++;
+        continue;
+      }
+
+      const exists = await User.findOne({ email }).lean();
+      if (exists) {
+        results.errors.push({ email, reason: 'Email already exists' });
+        results.skipped++;
+        continue;
+      }
+
+      const userData = { name, email, role };
+      if (password) {
+        userData.password = await User.hashPassword(password);
+      }
+
+      await User.create(userData);
+      results.created++;
+    }
+
+    res.json({
+      message: `Import complete: ${results.created} created, ${results.skipped} skipped`,
+      ...results,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const blockUser = async (req, res, next) => {
+  try {
+    if (req.params.id === req.user.sub) {
+      return res.status(400).json({ error: 'You cannot block your own account' });
+    }
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { status: 'blocked' },
+      { new: true }
+    ).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await ActivityLog.create({
+      eventType:    'block',
+      targetUserId: req.params.id,
+      performedBy:  req.user.sub,
+      details:      `User ${user.email} blocked by admin`,
+    });
+
+    res.json({ message: 'User blocked', user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const unblockUser = async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { status: 'active' },
+      { new: true }
+    ).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await ActivityLog.create({
+      eventType:    'unblock',
+      targetUserId: req.params.id,
+      performedBy:  req.user.sub,
+      details:      `User ${user.email} unblocked by admin`,
+    });
+
+    res.json({ message: 'User unblocked', user });
   } catch (err) {
     next(err);
   }
@@ -340,16 +464,19 @@ const getActivity = async (req, res, next) => {
 const getSuspiciousActivity = async (req, res, next) => {
   try {
     const results = await LoginHistory.aggregate([
+      { $match: { eventType: { $ne: 'blocked_attempt' } } },
       {
         $group: {
           _id:          '$userId',
           distinctIPs:  { $addToSet: '$ip' },
+          distinctDevices: { $addToSet: '$deviceId' },
           totalLogins:  { $sum: 1 },
           lastLogin:    { $max: '$createdAt' },
           firstLogin:   { $min: '$createdAt' },
           methods:      { $addToSet: '$method' },
+          lastIp:       { $last: '$ip' },
           recentLogins: {
-            $push: { ip: '$ip', method: '$method', userAgent: '$userAgent', createdAt: '$createdAt' },
+            $push: { ip: '$ip', method: '$method', userAgent: '$userAgent', createdAt: '$createdAt', browser: '$browser', os: '$os' },
           },
         },
       },
@@ -366,17 +493,28 @@ const getSuspiciousActivity = async (req, res, next) => {
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       {
         $project: {
-          userId:      '$_id',
-          _id:         0,
-          name:        { $ifNull: ['$user.name',  'Deleted User'] },
-          email:       { $ifNull: ['$user.email', ''] },
-          role:        { $ifNull: ['$user.role',  'unknown'] },
-          distinctIPs: 1,
-          ipCount:     { $size: '$distinctIPs' },
-          totalLogins: 1,
-          lastLogin:   1,
-          firstLogin:  1,
-          methods:     1,
+          userId:       '$_id',
+          _id:          0,
+          name:         { $ifNull: ['$user.name',   'Deleted User'] },
+          email:        { $ifNull: ['$user.email',  ''] },
+          role:         { $ifNull: ['$user.role',   'unknown'] },
+          status:       { $ifNull: ['$user.status', 'active'] },
+          distinctIPs:  1,
+          ipCount:      { $size: '$distinctIPs' },
+          deviceCount:  {
+            $size: {
+              $filter: {
+                input: '$distinctDevices',
+                as:    'd',
+                cond:  { $ne: ['$$d', null] },
+              },
+            },
+          },
+          lastActiveIP: '$lastIp',
+          totalLogins:  1,
+          lastLogin:    1,
+          firstLogin:   1,
+          methods:      1,
           riskLevel: {
             $switch: {
               branches: [
@@ -474,7 +612,7 @@ const deleteAnnouncement = async (req, res, next) => {
 
 module.exports = {
   getStats,
-  getUsers, updateUser, deleteUser,
+  getUsers, updateUser, deleteUser, bulkCreateUsers, blockUser, unblockUser,
   getCourses, createCourse, updateCourse, deleteCourse,
   addModule, deleteModule,
   addTopic, deleteTopic,

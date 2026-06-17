@@ -11,6 +11,7 @@ const UserSchema = new mongoose.Schema(
     googleId: { type: String, sparse: true, unique: true }, // omit when absent (sparse index ignores missing)
     avatar:   { type: String },
     role:     { type: String, enum: ['student', 'admin'], default: 'student' },
+    status:   { type: String, enum: ['active', 'blocked'], default: 'active' },
   },
   {
     timestamps: true,

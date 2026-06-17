@@ -2,6 +2,7 @@
 
 const User         = require('../models/User');
 const LoginHistory = require('../models/LoginHistory');
+const ActivityLog  = require('../models/ActivityLog');
 
 // ─── User helpers ─────────────────────────────────────────────────────────────
 
@@ -41,16 +42,47 @@ const createUser = async ({ name, email, password }) => {
 
 /**
  * Records a login event. Detects if the IP is new for this user (possible new device/location).
+ * Accepts optional device fingerprint fields.
  * Non-blocking: caller should fire-and-forget.
  */
-const recordLogin = async (userId, ip, userAgent, method = 'email') => {
+const recordLogin = async (userId, ip, userAgent, method = 'email', deviceInfo = {}) => {
   const existingFromIp = await LoginHistory.findOne({ userId, ip }).lean();
   const isNewDevice    = !existingFromIp;
-  return LoginHistory.create({ userId, ip, userAgent: userAgent || null, method, isNewDevice });
+  return LoginHistory.create({
+    userId,
+    ip,
+    userAgent:  userAgent || null,
+    method,
+    isNewDevice,
+    deviceId:   deviceInfo.deviceId   || null,
+    browser:    deviceInfo.browser    || null,
+    os:         deviceInfo.os         || null,
+    eventType:  'login',
+  });
 };
 
 const getLoginHistory = (userId, limit = 10) =>
   LoginHistory.find({ userId }).sort({ createdAt: -1 }).limit(limit);
+
+/**
+ * Records a login attempt from a blocked user.
+ * Stored in both LoginHistory (for IP tracking) and ActivityLog (for admin audit).
+ */
+const recordBlockedAttempt = async (userId, ip, userAgent, method = 'email') => {
+  await Promise.all([
+    LoginHistory.create({
+      userId, ip, userAgent: userAgent || null, method, isNewDevice: false,
+      eventType: 'blocked_attempt',
+    }),
+    ActivityLog.create({
+      eventType:    'blocked_login_attempt',
+      targetUserId: userId,
+      performedBy:  null,
+      ip,
+      details:      `Blocked login attempt via ${method}`,
+    }),
+  ]);
+};
 
 module.exports = {
   findByEmail,
@@ -58,5 +90,6 @@ module.exports = {
   findOrCreateGoogleUser,
   createUser,
   recordLogin,
+  recordBlockedAttempt,
   getLoginHistory,
 };

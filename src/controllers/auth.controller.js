@@ -48,7 +48,7 @@ const signToken = (user) =>
   jwt.sign(
     { sub: user._id.toString(), email: user.email, name: user.name, role: user.role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
 
 const safeUser = (user) => ({
@@ -95,11 +95,23 @@ const login = async (req, res, next) => {
     if (!valid)
       return res.status(401).json({ error: 'Invalid credentials' });
 
+    // Check if user is blocked
+    if (user.status === 'blocked') {
+      const ip = getClientIp(req);
+      authService.recordBlockedAttempt(user._id, ip, req.headers['user-agent'], 'email').catch(console.error);
+      return res.status(403).json({ error: 'Your account has been blocked by administrator.' });
+    }
+
     const token = signToken(user);
     const ip    = getClientIp(req);
+    const deviceInfo = {
+      deviceId: req.headers['x-device-id']   || null,
+      browser:  req.headers['x-browser']     || null,
+      os:       req.headers['x-os']          || null,
+    };
 
     // Non-blocking: record login without delaying response
-    authService.recordLogin(user._id, ip, req.headers['user-agent'], 'email').catch(console.error);
+    authService.recordLogin(user._id, ip, req.headers['user-agent'], 'email', deviceInfo).catch(console.error);
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
@@ -132,16 +144,29 @@ const loginHistory = async (req, res, next) => {
 
 // ─── GET /auth/google/callback ───────────────────────────────────────────────
 
-const googleCallback = (req, res) => {
+const googleCallback = async (req, res) => {
   try {
-    const user  = req.user;
+    const user = req.user;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // Check if user is blocked
+    if (user.status === 'blocked') {
+      const ip = getClientIp(req);
+      authService.recordBlockedAttempt(user._id, ip, req.headers['user-agent'], 'google').catch(console.error);
+      return res.redirect(`${frontendUrl}/login?error=account_blocked`);
+    }
+
     const token = signToken(user);
     const ip    = getClientIp(req);
+    const deviceInfo = {
+      deviceId: req.headers['x-device-id']   || null,
+      browser:  req.headers['x-browser']     || null,
+      os:       req.headers['x-os']          || null,
+    };
 
     // Non-blocking
-    authService.recordLogin(user._id, ip, req.headers['user-agent'], 'google').catch(console.error);
+    authService.recordLogin(user._id, ip, req.headers['user-agent'], 'google', deviceInfo).catch(console.error);
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/auth/callback?token=${encodeURIComponent(token)}`);
   } catch {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -174,4 +199,25 @@ const suspiciousCheck = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, me, loginHistory, googleCallback, suspiciousCheck };
+// ─── POST /api/auth/device ───────────────────────────────────────────────────
+// Receives a device fingerprint from the frontend after OAuth login and updates
+// the most recent login history record with device details.
+
+const updateDeviceInfo = async (req, res, next) => {
+  try {
+    const { deviceId, browser, os } = req.body;
+
+    // Update the most recent login record for this user
+    await LoginHistory.findOneAndUpdate(
+      { userId: req.user.sub },
+      { $set: { deviceId: deviceId || null, browser: browser || null, os: os || null } },
+      { sort: { createdAt: -1 } }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, me, loginHistory, googleCallback, suspiciousCheck, updateDeviceInfo };

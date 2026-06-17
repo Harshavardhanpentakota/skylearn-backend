@@ -16,9 +16,9 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 
 // ─── Trust proxy ─────────────────────────────────────────────────────────────
-// Trust all RFC-1918/loopback proxies (AWS ALB, Nginx, etc.).
-// This ensures req.ip is set correctly when not behind a reverse proxy.
-app.set('trust proxy', true);
+// Trust the immediate upstream proxy only (e.g. Nginx, AWS ALB).
+// Using `1` instead of `true` avoids express-rate-limit's permissive-proxy warning.
+app.set('trust proxy', 1);
 
 // ─── Security ────────────────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));

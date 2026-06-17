@@ -14,9 +14,12 @@ router.use(authenticate, adminOnly);
 router.get('/stats', admin.getStats);
 
 // ── Users ──────────────────────────────────────────────────────────────────
-router.get('/users',     admin.getUsers);
-router.put('/users/:id', admin.updateUser);
-router.delete('/users/:id', admin.deleteUser);
+router.get('/users',              admin.getUsers);
+router.post('/users/bulk',        admin.bulkCreateUsers);
+router.put('/users/:id',          admin.updateUser);
+router.delete('/users/:id',       admin.deleteUser);
+router.post('/users/block/:id',   admin.blockUser);
+router.post('/users/unblock/:id', admin.unblockUser);
 
 // ── Courses ────────────────────────────────────────────────────────────────
 router.get('/courses',         admin.getCourses);

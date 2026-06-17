@@ -9,6 +9,10 @@ const LoginHistorySchema = new mongoose.Schema(
     userAgent:   { type: String, default: null },
     method:      { type: String, enum: ['email', 'google'], default: 'email' },
     isNewDevice: { type: Boolean, default: false },
+    deviceId:    { type: String, default: null },
+    browser:     { type: String, default: null },
+    os:          { type: String, default: null },
+    eventType:   { type: String, enum: ['login', 'blocked_attempt'], default: 'login' },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },
