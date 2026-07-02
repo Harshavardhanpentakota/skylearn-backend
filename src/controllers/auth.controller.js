@@ -48,7 +48,7 @@ const signToken = (user) =>
   jwt.sign(
     { sub: user._id.toString(), email: user.email, name: user.name, role: user.role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '4h' }
   );
 
 const safeUser = (user) => ({
@@ -220,4 +220,42 @@ const updateDeviceInfo = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, me, loginHistory, googleCallback, suspiciousCheck, updateDeviceInfo };
+// ─── POST /api/auth/capture-face ─────────────────────────────────────────────
+const fs   = require('fs');
+const path = require('path');
+
+const captureFace = async (req, res, next) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Image data is required' });
+    }
+
+    // Decode base64 image
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const filename = `face_${req.user.sub}_${Date.now()}.jpg`;
+    const uploadDir = path.join(__dirname, '..', '..', 'public', 'facecards');
+    const uploadPath = path.join(uploadDir, filename);
+
+    // Create directories if they do not exist
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.writeFileSync(uploadPath, buffer);
+
+    // Save relative URL to the user's latest LoginHistory entry
+    const latestLogin = await LoginHistory.findOne({ userId: req.user.sub })
+      .sort({ createdAt: -1 });
+
+    if (latestLogin) {
+      latestLogin.faceCard = `/public/facecards/${filename}`;
+      await latestLogin.save();
+    }
+
+    res.json({ success: true, faceCard: `/public/facecards/${filename}` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, me, loginHistory, googleCallback, suspiciousCheck, updateDeviceInfo, captureFace };

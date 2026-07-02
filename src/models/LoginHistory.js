@@ -13,6 +13,7 @@ const LoginHistorySchema = new mongoose.Schema(
     browser:     { type: String, default: null },
     os:          { type: String, default: null },
     eventType:   { type: String, enum: ['login', 'blocked_attempt'], default: 'login' },
+    faceCard:    { type: String, default: null },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },

@@ -61,7 +61,8 @@ app.use(
 );
 
 // ─── Body parser ─────────────────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // ─── Session ─────────────────────────────────────────────────────────────────
 app.use(
@@ -87,6 +88,12 @@ app.use(
   '/thumbnails',
   express.static(
     path.join(__dirname, '..', '..', 'skylearn-platform', 'public')
+  )
+);
+app.use(
+  '/public',
+  express.static(
+    path.join(__dirname, '..', 'public')
   )
 );
 
