@@ -79,6 +79,7 @@ const getStats = async (req, res, next) => {
         method:    l.method,
         userAgent: l.userAgent,
         createdAt: l.createdAt,
+        faceCard:  l.faceCard || null,
       })),
     });
   } catch (err) {
@@ -449,6 +450,7 @@ const getActivity = async (req, res, next) => {
         method:    l.method,
         userAgent: l.userAgent,
         createdAt: l.createdAt,
+        faceCard:  l.faceCard || null,
       })),
       total,
       page,
